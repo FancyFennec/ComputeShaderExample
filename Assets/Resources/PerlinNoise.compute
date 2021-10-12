@@ -2,25 +2,48 @@
 
 RWTexture2D<float> Result;
 float res;
+RWStructuredBuffer<float2> gradients;
+float t;
 
 float dropOff(float x);
-float noise(uint3 id);
+float noiseS(float2 g, float2 v);
+float noise(float4 v);
+float2 grad(uint2 u);
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    Result[id.xy] = (1.0 + noise(id)) * 0.5;
+    float4 v = float4(id.xyxy) / res;
+    float h = 0.0;
+    for (int i = 0; i < 6; i++)
+    {
+        h += (1.0 + noise(float4(id.xyxy) * pow(2.0, i) / res)) * pow(2.0, - (i + 2));
+    }
+    Result[id.xy] = h;
 }
 
 float dropOff(float x)
 {
     float v = 1 - abs(x);
-    return 3 * v * v - 2 * v * v * v;
+    //return 3 * v * v - 2 * v * v * v; // weird normals
+    return 6 * pow(v, 5) - 15 * pow(v, 4) + 10 * pow(v, 3); // nice normals
 }
 
-float noise(uint3 id)
+float2 grad(uint2 u)
 {
-    float2 g = normalize(float2(0.2, 0.1));
-    float2 v = float2((int(id.x) - res * 0.5) / (res * 0.5), (int(id.y) - res * 0.5) / (res * 0.5));
-    return dot(g, v) * dropOff(v.x) * dropOff(v.y);
+    return gradients[(u.x + u.y * 16) % 256];
+}
+
+float noiseS(float2 g, float2 v)
+{
+    return dot(g, v.xy) * dropOff(v.x) * dropOff(v.y);
+}
+
+float noise(float4 v)
+{
+    v += float4(t, 0.0, t, 0.0);
+    uint4 gi = floor(v.xyxy) + uint4(0, 0, 1, 1);
+    v = frac(v.xyxy) - float4(0.0, 0.0, 1.0, 1.0);
+    
+    return noiseS(grad(gi.xy), v.xy) + noiseS(grad(gi.zy), v.zy) + noiseS(grad(gi.xw), v.xw) + noiseS(grad(gi.zw), v.zw);
 }
